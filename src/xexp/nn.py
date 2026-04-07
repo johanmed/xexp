@@ -90,11 +90,11 @@ class SetTransformer(nn.Module):
 
     def _init_weights(self):
         # Embedding initialization
-        nn.init.xavier_uniform_(self.gene_embeds.weight)
-        nn.init.xavier_uniform_(self.tissue_embeds.weight)
+        nn.init.xavier_uniform_(self.gene_embedder.weight)
+        nn.init.xavier_uniform_(self.tissue_embedder.weight)
 
         # Expression projection initialization
-        for m in self.expression_embeds.modules():
+        for m in self.expression_embedder.modules():
             if isinstance(m, nn.Linear):
                 nn.init.xavier_normal_(m.weight, gain=0.01)
                 if m.bias is not None:
@@ -151,10 +151,8 @@ class SetTransformer(nn.Module):
         obs_tissues: torch.Tensor,
         obs_genes: torch.Tensor,
         obs_expressions: torch.Tensor,
-        obs_conditions: torch.Tensor,
         query_tissues: torch.Tensor,
         query_genes: torch.Tensor,
-        query_conditions: torch.Tensor,
         obs_mask: Optional[torch.Tensor] = None,
         return_attention: bool = False,
     ) -> dict[str, torch.Tensor]:

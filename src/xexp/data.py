@@ -52,6 +52,7 @@ class MicroarrayDataset(torch.utils.data.Dataset):
         mask_ratio=0.2,
     ):
         self.expressions = expression_matrix
+        self.n_samples = expression_matrix.shape[0]
         self.n_tissues = expression_matrix.shape[1]
         self.n_genes = expression_matrix.shape[2]
         self.tissues = tissue_labels
@@ -78,7 +79,7 @@ class MicroarrayDataset(torch.utils.data.Dataset):
                     GeneExpression(
                         gene=g_idx,
                         tissue=t_idx,
-                        expression=sample[g_idx, t_idx],
+                        expression=sample[t_idx, g_idx],
                     )
                 )
 
@@ -90,22 +91,22 @@ class MicroarrayDataset(torch.utils.data.Dataset):
                 GeneExpression(
                     gene=g_idx,
                     tissue=target_tissue,
-                    expression=sample[g_idx, target_tissue],
+                    expression=sample[target_tissue, g_idx],
                 )
             )
 
         return Example(observations=observed, query=query)
 
 
-def collate_fn(batch: List[Example]) -> dict:
+def collate_fn(batch: list[Example]) -> dict:
     """
     Batch multiple Example into tensor dictionaries
     Handle padding for variable-length observations
     """
     tensor_dicts = [ex.to_tensor_dict() for ex in batch]
 
-    max_obs_len = max(d["obs_genes"].shape[0] for d in tensor_dicts)
-    max_query_len = max(d["query_genes"].shape[0] for d in tensor_dicts)
+    max_obs_len = max(d["obs_tissues"].shape[0] for d in tensor_dicts)
+    max_query_len = max(d["query_tissues"].shape[0] for d in tensor_dicts)
 
     batch_size = len(batch)
 
@@ -123,8 +124,8 @@ def collate_fn(batch: List[Example]) -> dict:
 
     # Fill in data
     for i, d in enumerate(tensor_dicts):
-        obs_len = d["obs_genes"].shape[0]
-        query_len = d["query_genes"].shape[0]
+        obs_len = d["obs_tissues"].shape[0]
+        query_len = d["query_tissues"].shape[0]
 
         batch_obs_tissues[i, :obs_len] = d["obs_tissues"]
         batch_obs_genes[i, :obs_len] = d["obs_genes"]

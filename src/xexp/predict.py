@@ -13,7 +13,7 @@ from nn import SetTransformer
 def predict_expression(
     model: SetTransformer,
     observations: Dict[str, torch.Tensor],
-    target_tissue: int,
+    target_tissue: int = 0,
     gene_list: Optional[List[int]] = None,
     device: str = "cuda",
 ) -> Dict[str, np.ndarray]:
@@ -29,16 +29,15 @@ def predict_expression(
     Returns:
         Dictionary with 'expression', 'uncertainty', 'lower_bound', 'upper_bound'
     """
+    model = model.to(device)
     model.eval()
 
     if gene_list is None:
         gene_list = list(range(model.n_genes))
 
-    obs_tissues = torch.LongTensor(observations["tissues"]).unsqueeze(0).to(device)
-    obs_genes = torch.LongTensor(observations["genes"]).unsqueeze(0).to(device)
-    obs_expressions = (
-        torch.FloatTensor(observations["expressions"]).unsqueeze(0).to(device)
-    )
+    obs_tissues = observations["obs_tissues"].unsqueeze(0).to(device)
+    obs_genes = observations["obs_genes"].unsqueeze(0).to(device)
+    obs_expressions = observations["obs_expressions"].unsqueeze(0).to(device)
 
     query_tissues = (
         torch.LongTensor([target_tissue] * len(gene_list)).unsqueeze(0).to(device)
@@ -54,16 +53,16 @@ def predict_expression(
             query_genes=query_genes,
         )
 
-    pred_expressions = outputs["expressions"].squeeze(0).cpu().numpy()
-    pred_uncertainties = outputs["uncertainties"].squeeze(0).cpu().numpy()
-    std = np.sqrt(pred_uncertainties)
+    pred_expressions = outputs["expressions"].squeeze(0)
+    pred_uncertainties = outputs["uncertainties"].squeeze(0)
+    std = torch.sqrt(pred_uncertainties)
 
     return {
         "expressions": pred_expressions,
         "uncertainties": pred_uncertainties,
         "std": std,
-        "lower_bound_95": expr - 1.96 * std,
-        "upper_bound_95": expr + 1.96 * std,
+        "lower_bound_95": pred_expressions - 1.96 * std,
+        "upper_bound_95": pred_expressions + 1.96 * std,
     }
 
 
@@ -75,6 +74,11 @@ if __name__ == "__main__":
     torch.manual_seed(RANDOM_SEED)
     np.random.seed(RANDOM_SEED)
 
+    n_samples = 3
+    expression_matrix = np.random.randn(n_samples, N_TISSUES, N_GENES)
+    tissue_labels = np.random.randint(0, N_TISSUES, n_samples)
+    gene_labels = np.random.randint(0, N_GENES, n_samples)
+    
     test_dataset = MicroarrayDataset(
         expression_matrix=expression_matrix,
         tissue_labels=tissue_labels,
@@ -100,9 +104,8 @@ if __name__ == "__main__":
     for data in transformed_dataset:
         predictions = predict_expression(
             model,
-            data,
-            target_tissue=0,  # Predict for tissue 0
+            data
         )
 
         print(f"Predicted expressions: {predictions['expressions']}")
-        print(f"Uncertainties: {predictions['uncertainties']}")
+        print(f"Predicted uncertainties: {predictions['uncertainties']}")

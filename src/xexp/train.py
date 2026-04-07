@@ -10,7 +10,7 @@ import torch.nn.functional as F
 from sklearn.model_selection import train_test_split
 from torch.utils.data import DataLoader
 
-from data import MicroarrayDataset
+from data import MicroarrayDataset, collate_fn
 from nn import SetTransformer
 
 
@@ -108,7 +108,7 @@ class Trainer:
             outputs = self.model(
                 obs_tissues=batch["obs_tissues"],
                 obs_genes=batch["obs_genes"],
-                obs_expr=batch["obs_expressions"],
+                obs_expressions=batch["obs_expressions"],
                 query_tissues=batch["query_tissues"],
                 query_genes=batch["query_genes"],
                 obs_mask=batch["obs_mask"],
@@ -116,7 +116,7 @@ class Trainer:
 
             # Compute loss
             losses = self.criterion(
-                outputs, batch["targets"], mask=~batch["query_mask"]
+                outputs, batch["targets"],
             )
 
             # Backward
@@ -130,7 +130,7 @@ class Trainer:
 
             total_loss += losses["total"].item()
             total_mse += losses["mse"].item()
-
+    
         n = len(self.train_loader)
 
         return {"loss": total_loss / n, "mse": total_mse / n}
@@ -150,18 +150,18 @@ class Trainer:
             outputs = self.model(
                 obs_tissues=batch["obs_tissues"],
                 obs_genes=batch["obs_genes"],
-                obs_expr=batch["obs_expressions"],
+                obs_expressions=batch["obs_expressions"],
                 query_tissues=batch["query_tissues"],
                 query_genes=batch["query_genes"],
                 obs_mask=batch["obs_mask"],
             )
 
             losses = self.criterion(
-                outputs, batch["targets"], mask=~batch["query_mask"]
+                outputs, batch["targets"]
             )
             total_loss += losses["total"].item()
             total_mse += losses["mse"].item()
-
+           
         n = len(self.val_loader)
 
         metrics = {"val_loss": total_loss / n, "val_mse": total_mse / n}
