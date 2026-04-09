@@ -130,7 +130,8 @@ class SetTransformer(nn.Module):
         query_genes: torch.Tensor,
         encoded_observations: torch.Tensor,
         obs_mask: Optional[torch.Tensor] = None,
-    ) -> torch.Tensor:
+        return_attention: bool = False,
+    ) -> tuple[torch.Tensor, Optional[torch.Tensor]]:
         """Decode queries using cross-attention over observations"""
         batch_size, n_queries = query_tissues.shape
 
@@ -138,13 +139,44 @@ class SetTransformer(nn.Module):
         gene_embeds = self.gene_embedder(query_genes)
 
         query_features = tissue_embeds + gene_embeds
-        decoded = self.decoder(
-            tgt=query_features,
-            memory=encoded_observations,
-            memory_key_padding_mask=obs_mask,
-        )
 
-        return decoded
+        if not return_attention:
+            decoded = self.decoder(
+                tgt=query_features,
+                memory=encoded_observations,
+                memory_key_padding_mask=obs_mask,
+            )
+            return decoded, None
+    
+        x = query_features
+        attn_weights = None
+    
+        for i, layer in enumerate(self.decoder.layers):
+            x2 = layer.self_attn(x, x, x)[0]
+            x = x + layer.dropout1(x2)
+            x = layer.norm1(x)
+        
+            if i == len(self.decoder.layers) - 1:
+                x2, attn_weights = layer.multihead_attn(
+                    x, encoded_observations, encoded_observations,
+                    key_padding_mask=obs_mask,
+                    need_weights=True,
+                    average_attn_weights=True
+                )
+            else:
+                x2 = layer.multihead_attn(
+                    x, encoded_observations, encoded_observations,
+                    key_padding_mask=obs_mask
+                )[0]
+        
+            x = x + layer.dropout2(x2)
+            x = layer.norm2(x)
+        
+            x2 = layer.linear2(layer.dropout(layer.activation(layer.linear1(x))))
+            x = x + layer.dropout3(x2)
+            x = layer.norm3(x)
+    
+        return x, attn_weights
 
     def forward(
         self,
@@ -168,12 +200,14 @@ class SetTransformer(nn.Module):
         Returns:
             Dictionary with 'expression', 'uncertainty', and optionally 'attention_weights'
         """
+
         encoded = self.encode_observations(
             obs_tissues, obs_genes, obs_expressions, obs_mask
         )
 
-        # Decode queries
-        decoded = self.decode_query(query_tissues, query_genes, encoded, obs_mask)
+        decoded, attn_weights = self.decode_query(
+            query_tissues, query_genes, encoded, obs_mask, return_attention
+        )
 
         # Predict expression and uncertainty
         expressions = self.expression_head(decoded).squeeze(-1)
@@ -186,24 +220,9 @@ class SetTransformer(nn.Module):
             "decoded_query": decoded,
         }
 
-        if return_attention:
-            attention_weights = []
-
-            def hook_fn(module, input, output):
-                attention_weights.append(
-                    output[1]
-                )  # output is (attn_output, attn_weights)
-
-            handles = []
-            for layer in self.decoder.layers:
-                handles.append(layer.multihead_attn.register_forward_hook(hook_fn))
-
-            # Re-run decoder with hooks
-            _ = self.decode_query(query_tissues, query_genes, encoded, obs_mask)
-
-            for h in handles:
-                h.remove()
-
-            outputs["attention_weights"] = attention_weights
+        if return_attention and attn_weights is not None:
+            outputs["attention_weights"] = [attn_weights]
 
         return outputs
+
+        

@@ -3,6 +3,7 @@
 from typing import Dict, List, Optional
 
 import numpy as np
+import pandas as pd
 import torch
 from torch.utils.data import DataLoader
 
@@ -12,21 +13,21 @@ from nn import SetTransformer
 
 def predict_expression(
     model: SetTransformer,
-    observations: Dict[str, torch.Tensor],
-    target_tissue: int = 0,
+    data: Dict[str, torch.Tensor],
+    target_tissue: int = 0, # tissue 1
     gene_list: Optional[List[int]] = None,
     device: str = "cuda",
 ) -> Dict[str, np.ndarray]:
     """
-    Inference function for predicting expression in a specific target tissue
+    Predict expression in a specific target tissue
 
     Args:
         model: Trained model
-        observations: Dict with 'genes', 'tissues', 'expressions'
+        data: Dict with 'obs_tissues', 'obs_genes', etc
         target_tissue: Tissue ID to predict
         gene_list: List of gene IDs to predict (default: all genes)
 
-    Returns:
+    Return:
         Dictionary with 'expression', 'uncertainty', 'lower_bound', 'upper_bound'
     """
     model = model.to(device)
@@ -35,9 +36,9 @@ def predict_expression(
     if gene_list is None:
         gene_list = list(range(model.n_genes))
 
-    obs_tissues = observations["obs_tissues"].unsqueeze(0).to(device)
-    obs_genes = observations["obs_genes"].unsqueeze(0).to(device)
-    obs_expressions = observations["obs_expressions"].unsqueeze(0).to(device)
+    obs_tissues = data["obs_tissues"].unsqueeze(0).to(device)
+    obs_genes = data["obs_genes"].unsqueeze(0).to(device)
+    obs_expressions = data["obs_expressions"].unsqueeze(0).to(device)
 
     query_tissues = (
         torch.LongTensor([target_tissue] * len(gene_list)).unsqueeze(0).to(device)
@@ -66,6 +67,71 @@ def predict_expression(
     }
 
 
+def explain_prediction(
+    model: SetTransformer,
+    data: Dict[str, torch.Tensor],
+    tissue_labels: np.ndarray,
+    gene_labels: np.ndarray,
+    target_tissue_idx: int = 0, # tissue 1
+    target_gene_idx: int = 0, # gene 1
+    device: str = 'cuda'
+) -> pd.DataFrame:
+    """
+    Return a dataframe showing which observed (gene, tissue) pairs 
+    most influenced the prediction for a specific (target_gene, target_tissue)
+    """
+
+    model = model.to(device)
+    model.eval()
+
+    obs_tissues = data["obs_tissues"].unsqueeze(0).to(device)
+    obs_genes = data["obs_genes"].unsqueeze(0).to(device)
+    obs_expressions = data["obs_expressions"].unsqueeze(0).to(device)
+    
+    query_tissues = (
+        torch.LongTensor([target_tissue_idx] * len(gene_labels)).unsqueeze(0).to(device)
+    )
+    query_genes = torch.LongTensor(gene_labels).unsqueeze(0).to(device)
+
+    with torch.no_grad():
+        outputs = model(
+            obs_tissues=obs_tissues,
+            obs_genes=obs_genes,
+            obs_expressions=obs_expressions,
+            query_tissues=query_tissues,
+            query_genes=query_genes,
+            return_attention=True
+        )
+    
+    # Get attention from last decoder layer
+    attn = outputs['attention_weights'][-1].squeeze(0)
+    
+    # Find the query index for our target (gene, tissue)
+    query_mask = (
+        (query_genes == target_gene_idx) &
+        (query_tissues == target_tissue_idx)
+    )
+
+    matches = query_mask.nonzero(as_tuple=True)
+    query_idx = matches[1][0].item()
+    
+    # Get attention weights for specific query
+    query_attn = attn[query_idx].cpu().numpy()
+    
+    results = []
+    for obs_idx in range(obs_genes.shape[1]):
+        results.append({
+            'obs_gene': gene_labels[obs_genes[0, obs_idx].item()],
+            'obs_tissue': tissue_labels[obs_tissues[0, obs_idx].item()],
+            'obs_expression': obs_expressions[0, obs_idx].item(),
+            'attention_weight': query_attn[obs_idx],
+            'pct_contribution': query_attn[obs_idx] / query_attn.sum() * 100
+        })
+        
+    df = pd.DataFrame(results)
+    return df.sort_values('attention_weight', ascending=False)
+    
+
 if __name__ == "__main__":
     RANDOM_SEED = 2026
     N_TISSUES = 10
@@ -76,8 +142,8 @@ if __name__ == "__main__":
 
     n_samples = 3
     expression_matrix = np.random.randn(n_samples, N_TISSUES, N_GENES)
-    tissue_labels = np.random.randint(0, N_TISSUES, n_samples)
-    gene_labels = np.random.randint(0, N_GENES, n_samples)
+    tissue_labels = np.random.randint(0, N_TISSUES, 10) # length label must match total number of tissues
+    gene_labels = np.random.randint(0, N_GENES, 1000) # length label must match total number of genes
     
     test_dataset = MicroarrayDataset(
         expression_matrix=expression_matrix,
@@ -106,6 +172,12 @@ if __name__ == "__main__":
             model,
             data
         )
-
-        print(f"Predicted expressions: {predictions['expressions']}")
-        print(f"Predicted uncertainties: {predictions['uncertainties']}")
+        print(f"Predicted expressions for tissue 1: {predictions['expressions']}")
+        print(f"Predicted uncertainties for tissue 1: {predictions['uncertainties']}")
+        explanations = explain_prediction(
+            model,
+            data,
+            tissue_labels,
+            gene_labels
+        )
+        print(f"Explanations for tissue 1 and gene 1\n: {explanations}")
