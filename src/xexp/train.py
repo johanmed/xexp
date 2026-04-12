@@ -3,11 +3,13 @@
 from pathlib import Path
 from typing import Dict, List, Optional
 
+import joblib
 import numpy as np
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
 from sklearn.model_selection import train_test_split
+from sklearn.preprocessing import LabelEncoder
 from torch.utils.data import DataLoader
 
 from data import MicroarrayDataset, collate_fn
@@ -196,6 +198,16 @@ if __name__ == "__main__":
         train_gene_labels, valid_gene_labels = train_test_split(
             gene_labels, test_size=0.2, random_state=RANDOM_SEED
         )
+
+        # tissue_encoder, gene_encoder = LabelEncoder(), LabelEncoder()
+
+        # train_tissue_labels = tissue_encoder.fit_transform(train_tissue_labels)
+        # valid_tissue_labels = tissue_encoder.transform(valid_tissue_labels)
+        # joblib.dump(tissue_encoder, "../../results/tissue_encoder.pkl")
+
+        # train_gene_labels = gene_encoder.fit_transform(train_gene_labels)
+        # valid_gene_labels = gene_encoder.transform(valid_gene_labels)
+        # joblib.dump(gene_encoder, "../../results/gene_encoder.pkl")
 
         train_dataset = MicroarrayDataset(
             expression_matrix=train_expression_matrix,

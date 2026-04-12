@@ -2,6 +2,7 @@
 
 from typing import Dict, List, Optional
 
+import joblib
 import numpy as np
 import pandas as pd
 import torch
@@ -144,6 +145,12 @@ if __name__ == "__main__":
     expression_matrix = np.random.randn(n_samples, N_TISSUES, N_GENES)
     tissue_labels = np.random.randint(0, N_TISSUES, 10) # length label must match total number of tissues
     gene_labels = np.random.randint(0, N_GENES, 1000) # length label must match total number of genes
+
+    # tissue_encoder = joblib.load("../../results/tissue_encoder.pkl")
+    # gene_encoder = joblib.load("../../results/gene_encoder.pkl")
+
+    # new_tissue_labels = tissue_encoder.transform(tissue_labels)
+    # new_gene_labels = gene_encoder.transform(gene_labels)
     
     test_dataset = MicroarrayDataset(
         expression_matrix=expression_matrix,
