@@ -147,35 +147,39 @@ class SetTransformer(nn.Module):
                 memory_key_padding_mask=obs_mask,
             )
             return decoded, None
-    
+
         x = query_features
         attn_weights = None
-    
+
         for i, layer in enumerate(self.decoder.layers):
             x2 = layer.self_attn(x, x, x)[0]
             x = x + layer.dropout1(x2)
             x = layer.norm1(x)
-        
+
             if i == len(self.decoder.layers) - 1:
                 x2, attn_weights = layer.multihead_attn(
-                    x, encoded_observations, encoded_observations,
+                    x,
+                    encoded_observations,
+                    encoded_observations,
                     key_padding_mask=obs_mask,
                     need_weights=True,
-                    average_attn_weights=True
+                    average_attn_weights=True,
                 )
             else:
                 x2 = layer.multihead_attn(
-                    x, encoded_observations, encoded_observations,
-                    key_padding_mask=obs_mask
+                    x,
+                    encoded_observations,
+                    encoded_observations,
+                    key_padding_mask=obs_mask,
                 )[0]
-        
+
             x = x + layer.dropout2(x2)
             x = layer.norm2(x)
-        
+
             x2 = layer.linear2(layer.dropout(layer.activation(layer.linear1(x))))
             x = x + layer.dropout3(x2)
             x = layer.norm3(x)
-    
+
         return x, attn_weights
 
     def forward(
@@ -224,5 +228,3 @@ class SetTransformer(nn.Module):
             outputs["attention_weights"] = [attn_weights]
 
         return outputs
-
-        

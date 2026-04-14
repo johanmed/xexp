@@ -4,7 +4,7 @@ import numpy as np
 import torch
 from torch.utils.data import DataLoader
 
-from data import MicroarrayDataset, collate_fn
+from data import RANDOM_SEED, collate_fn, gene_labels, test_dataset, tissue_labels
 from nn import SetTransformer
 from train import GELoss
 
@@ -28,36 +28,20 @@ def evaluate(model, dataloader, device="cuda") -> torch.Tensor:
             losses = criterion(outputs, batch["targets"])
             metric = losses["total"].item() / len(batch)
             metrics.append(metric)
-    return sum(metrics)/len(metrics)
+    return sum(metrics) / len(metrics)
 
 
 if __name__ == "__main__":
-    RANDOM_SEED = 2027
-    N_TISSUES = 10
-    N_GENES = 1000
-    BATCH_SIZE = 8
-
     torch.manual_seed(RANDOM_SEED)
     np.random.seed(RANDOM_SEED)
-
-    n_samples = 3
-    expression_matrix = np.random.randn(n_samples, N_TISSUES, N_GENES)
-    tissue_labels = np.random.randint(0, N_TISSUES, n_samples)
-    gene_labels = np.random.randint(0, N_GENES, n_samples)
-
-    test_dataset = MicroarrayDataset(
-        expression_matrix=expression_matrix,
-        tissue_labels=tissue_labels,
-        gene_labels=gene_labels,
-    )
 
     test_dataloader = DataLoader(
         test_dataset, batch_size=BATCH_SIZE, shuffle=True, collate_fn=collate_fn
     )
 
     model = SetTransformer(
-        n_tissues=N_TISSUES,
-        n_genes=N_GENES,
+        n_tissues=len(np.unique(tissue_labels)),
+        n_genes=len(np.unique(gene_labels)),
         dims=128,
         n_heads=4,
         n_encoder_layers=2,

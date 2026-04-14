@@ -2,8 +2,12 @@
 
 from dataclasses import dataclass
 
+import joblib
 import numpy as np
+import pandas as pd
 import torch
+from sklearn.model_selection import train_test_split
+from sklearn.preprocessing import LabelEncoder
 
 
 @dataclass
@@ -23,11 +27,15 @@ class Example:
 
         def to_tensors(obs_list):
             return {
-                "tissues": torch.tensor([o.tissue for o in obs_list]),
-                "genes": torch.tensor([o.gene for o in obs_list]),
+                "tissues": torch.tensor(
+                    [o.tissue for o in obs_list], dtype=torch.long
+                ).squeeze(),
+                "genes": torch.tensor(
+                    [o.gene for o in obs_list], dtype=torch.long
+                ).squeeze(),
                 "expressions": torch.tensor(
                     [o.expression for o in obs_list], dtype=torch.float32
-                ),
+                ).squeeze(),
             }
 
         obs_tensors = to_tensors(self.observations)
@@ -53,10 +61,10 @@ class MicroarrayDataset(torch.utils.data.Dataset):
     ):
         self.expressions = expression_matrix
         self.n_samples = expression_matrix.shape[0]
-        self.n_tissues = expression_matrix.shape[1]
-        self.n_genes = expression_matrix.shape[2]
-        self.tissues = tissue_labels
-        self.genes = gene_labels
+        self.n_tissues = len(np.unique(tissue_labels))
+        self.n_genes = len(np.unique(gene_labels))
+        self.tissues = np.asarray(tissue_labels).flatten()
+        self.genes = np.asarray(gene_labels).flatten()
         self.mask_ratio = mask_ratio
 
     def __len__(self) -> int:
@@ -71,30 +79,23 @@ class MicroarrayDataset(torch.utils.data.Dataset):
         n_observations = max(1, int(self.n_tissues * (1 - self.mask_ratio)))
         obs_tissue_ids = np.random.choice(self.n_tissues, n_observations, replace=False)
         query_tissue_ids = np.setdiff1d(np.arange(self.n_tissues), obs_tissue_ids)
+        target_tissue = np.random.choice(query_tissue_ids)
 
         observed = []
-        for t_idx in obs_tissue_ids:
-            for g_idx in range(self.n_genes):
-                observed.append(
-                    GeneExpression(
-                        gene=g_idx,
-                        tissue=t_idx,
-                        expression=sample[t_idx, g_idx],
-                    )
-                )
-
-        # Predict all genes for one random query tissue
-        target_tissue = np.random.choice(query_tissue_ids)
         query = []
-        for g_idx in range(self.n_genes):
-            query.append(
-                GeneExpression(
-                    gene=g_idx,
-                    tissue=target_tissue,
-                    expression=sample[target_tissue, g_idx],
-                )
-            )
 
+        for new_idx in range(len(sample)):
+            t_idx = self.tissues[new_idx]
+            g_idx = self.genes[new_idx]
+            expression = sample[new_idx]
+            if t_idx in obs_tissue_ids:
+                observed.append(
+                    GeneExpression(tissue=t_idx, gene=g_idx, expression=expression)
+                )
+            if t_idx == target_tissue:
+                query.append(
+                    GeneExpression(tissue=t_idx, gene=g_idx, expression=expression)
+                )
         return Example(observations=observed, query=query)
 
 
@@ -145,3 +146,60 @@ def collate_fn(batch: list[Example]) -> dict:
         "query_genes": batch_query_genes,
         "targets": batch_targets,
     }
+
+
+RANDOM_SEED = 2026
+BATCH_SIZE = 2  # might need finetuning
+N_SAMPLES = 100  # same
+
+df = pd.read_csv(
+    "../../data/xexp_data_sample.csv",
+    names=["tissue", "gene", "expression"],
+)
+df = df.groupby(["tissue", "gene"]).head(N_SAMPLES).reset_index(drop=True)
+df["sample_id"] = df.groupby(["tissue", "gene"]).cumcount()
+print(f"Preparing dataset...\nDimensions: {df.shape}")
+
+pivot = df.pivot_table(
+    index="sample_id",
+    columns=["tissue", "gene"],
+    values="expression",
+)
+
+tissue_labels = pivot.columns.get_level_values(0).values.to_numpy().reshape(-1, 1)
+gene_labels = pivot.columns.get_level_values(1).values.to_numpy().reshape(-1, 1)
+expression_matrix = pivot.values
+expression_mean = expression_matrix.mean(axis=0, keepdims=True)
+expression_std = expression_matrix.std(axis=0, keepdims=True) + 1e-8
+expression_matrix = (expression_matrix - expression_mean) / expression_std
+
+tv_expression_matrix, test_expression_matrix = train_test_split(
+    expression_matrix, test_size=0.2, random_state=RANDOM_SEED
+)
+train_expression_matrix, valid_expression_matrix = train_test_split(
+    tv_expression_matrix, test_size=0.2, random_state=RANDOM_SEED
+)
+
+tissue_encoder, gene_encoder = LabelEncoder(), LabelEncoder()
+
+tissue_labels = tissue_encoder.fit_transform(tissue_labels)
+joblib.dump(tissue_encoder, "../../results/tissue_encoder.pkl")
+
+gene_labels = gene_encoder.fit_transform(gene_labels)
+joblib.dump(gene_encoder, "../../results/gene_encoder.pkl")
+
+train_dataset = MicroarrayDataset(
+    expression_matrix=train_expression_matrix,
+    tissue_labels=tissue_labels,
+    gene_labels=gene_labels,
+)
+valid_dataset = MicroarrayDataset(
+    expression_matrix=valid_expression_matrix,
+    tissue_labels=tissue_labels,
+    gene_labels=gene_labels,
+)
+test_dataset = MicroarrayDataset(
+    expression_matrix=test_expression_matrix,
+    tissue_labels=tissue_labels,
+    gene_labels=gene_labels,
+)

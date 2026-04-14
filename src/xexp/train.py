@@ -8,11 +8,17 @@ import numpy as np
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-from sklearn.model_selection import train_test_split
-from sklearn.preprocessing import LabelEncoder
 from torch.utils.data import DataLoader
 
-from data import MicroarrayDataset, collate_fn
+from data import (
+    BATCH_SIZE,
+    RANDOM_SEED,
+    collate_fn,
+    gene_labels,
+    tissue_labels,
+    train_dataset,
+    valid_dataset,
+)
 from nn import SetTransformer
 
 
@@ -118,7 +124,8 @@ class Trainer:
 
             # Compute loss
             losses = self.criterion(
-                outputs, batch["targets"],
+                outputs,
+                batch["targets"],
             )
 
             # Backward
@@ -132,7 +139,7 @@ class Trainer:
 
             total_loss += losses["total"].item()
             total_mse += losses["mse"].item()
-    
+
         n = len(self.train_loader)
 
         return {"loss": total_loss / n, "mse": total_mse / n}
@@ -158,12 +165,10 @@ class Trainer:
                 obs_mask=batch["obs_mask"],
             )
 
-            losses = self.criterion(
-                outputs, batch["targets"]
-            )
+            losses = self.criterion(outputs, batch["targets"])
             total_loss += losses["total"].item()
             total_mse += losses["mse"].item()
-           
+
         n = len(self.val_loader)
 
         metrics = {"val_loss": total_loss / n, "val_mse": total_mse / n}
@@ -175,54 +180,10 @@ class Trainer:
 
 if __name__ == "__main__":
     if not Path("../../results/xexp_weights.pt").exists():
-        RANDOM_SEED = 2026
-        N_TISSUES = 10
-        N_GENES = 1000
-        BATCH_SIZE = 8
-
         torch.manual_seed(RANDOM_SEED)
-        np.random.seed(RANDOM_SEED)
-
-        # Create dummy data
-        n_samples = 100
-        expression_matrix = np.random.randn(n_samples, N_TISSUES, N_GENES)
-        tissue_labels = np.random.randint(0, N_TISSUES, n_samples)
-        gene_labels = np.random.randint(0, N_GENES, n_samples)
-
-        train_expression_matrix, valid_expression_matrix = train_test_split(
-            expression_matrix, test_size=0.2, random_state=RANDOM_SEED
-        )
-        train_tissue_labels, valid_tissue_labels = train_test_split(
-            tissue_labels, test_size=0.2, random_state=RANDOM_SEED
-        )
-        train_gene_labels, valid_gene_labels = train_test_split(
-            gene_labels, test_size=0.2, random_state=RANDOM_SEED
-        )
-
-        # tissue_encoder, gene_encoder = LabelEncoder(), LabelEncoder()
-
-        # train_tissue_labels = tissue_encoder.fit_transform(train_tissue_labels)
-        # valid_tissue_labels = tissue_encoder.transform(valid_tissue_labels)
-        # joblib.dump(tissue_encoder, "../../results/tissue_encoder.pkl")
-
-        # train_gene_labels = gene_encoder.fit_transform(train_gene_labels)
-        # valid_gene_labels = gene_encoder.transform(valid_gene_labels)
-        # joblib.dump(gene_encoder, "../../results/gene_encoder.pkl")
-
-        train_dataset = MicroarrayDataset(
-            expression_matrix=train_expression_matrix,
-            tissue_labels=train_tissue_labels,
-            gene_labels=train_gene_labels,
-        )
 
         train_dataloader = DataLoader(
             train_dataset, batch_size=BATCH_SIZE, shuffle=True, collate_fn=collate_fn
-        )
-
-        valid_dataset = MicroarrayDataset(
-            expression_matrix=valid_expression_matrix,
-            tissue_labels=valid_tissue_labels,
-            gene_labels=valid_gene_labels,
         )
 
         valid_dataloader = DataLoader(
@@ -230,26 +191,26 @@ if __name__ == "__main__":
         )
 
         model = SetTransformer(
-            n_tissues=N_TISSUES,
-            n_genes=N_GENES,
+            n_tissues=len(np.unique(tissue_labels)),
+            n_genes=len(np.unique(gene_labels)),
             dims=128,
             n_heads=4,
             n_encoder_layers=2,
             n_decoder_layers=2,
         )
 
-        trainer = Trainer(model, train_dataloader, valid_dataloader)
+        trainer = Trainer(model, train_dataloader)#, valid_dataloader)
 
         print("Training...")
-        for epoch in range(3):
+        for epoch in range(10):
             metrics = trainer.train_epoch()
             print(
                 f"Epoch {epoch+1}: Total loss={metrics['loss']:.4f}, MSE={metrics['mse']:.4f}"
             )
 
-        print("Validation...")
-        metrics = trainer.validate()
-        print(f"Total loss={metrics['val_loss']:.4f}, MSE={metrics['val_mse']:.4f}")
+        #print("Validation...")
+        #metrics = trainer.validate()
+        #print(f"Total loss={metrics['val_loss']:.4f}, MSE={metrics['val_mse']:.4f}")
 
         # Save weights of trained model
         torch.save(model.state_dict(), "../../results/xexp_weights.pt")
