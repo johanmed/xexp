@@ -199,7 +199,7 @@ if __name__ == "__main__":
             n_decoder_layers=2,
         )
 
-        trainer = Trainer(model, train_dataloader)#, valid_dataloader)
+        trainer = Trainer(model, train_dataloader)  # , valid_dataloader)
 
         print("Training...")
         for epoch in range(10):
@@ -208,9 +208,9 @@ if __name__ == "__main__":
                 f"Epoch {epoch+1}: Total loss={metrics['loss']:.4f}, MSE={metrics['mse']:.4f}"
             )
 
-        #print("Validation...")
-        #metrics = trainer.validate()
-        #print(f"Total loss={metrics['val_loss']:.4f}, MSE={metrics['val_mse']:.4f}")
+        # print("Validation...")
+        # metrics = trainer.validate()
+        # print(f"Total loss={metrics['val_loss']:.4f}, MSE={metrics['val_mse']:.4f}")
 
         # Save weights of trained model
         torch.save(model.state_dict(), "../../results/xexp_weights.pt")

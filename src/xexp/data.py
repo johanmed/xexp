@@ -158,6 +158,8 @@ df = pd.read_csv(
 )
 df = df.groupby(["tissue", "gene"]).head(N_SAMPLES).reset_index(drop=True)
 df["sample_id"] = df.groupby(["tissue", "gene"]).cumcount()
+min_samples = df.groupby(["tissue", "gene"]).size().min()
+df = df[df["sample_id"] < min_samples]
 print(f"Preparing dataset...\nDimensions: {df.shape}")
 
 pivot = df.pivot_table(
