@@ -151,7 +151,7 @@ def collate_fn(batch: list[Example]) -> dict:
 
 RANDOM_SEED = 2026
 BATCH_SIZE = 2  # might need finetuning
-N_SAMPLES = 100  # same
+N_SAMPLES = 1000
 
 df = pd.read_csv(
     "../../data/xexp_data_sample.csv",
