@@ -117,13 +117,20 @@ def explain_prediction(
     attn = outputs["attention_weights"][-1].squeeze(0)
     query_attn = attn[0].cpu().numpy()
 
+    tissue_mask = tissue_labels == target_tissue_idx
+
+    mean = expression_scaler.mean_[tissue_mask][target_gene_idx]
+    scale = expression_scaler.scale_[tissue_mask][target_gene_idx]
+
     results = []
     for obs_idx in range(obs_genes.shape[1]):
         results.append(
             {
                 "obs_gene": gene_labels[obs_genes[0, obs_idx].item()],
                 "obs_tissue": tissue_labels[obs_tissues[0, obs_idx].item()],
-                "obs_expression": max(obs_expressions[0, obs_idx].item(), 0),
+                "obs_expression": max(
+                    (obs_expressions[0, obs_idx].item() * scale + mean), 0
+                ),
                 "attention_weight": query_attn[obs_idx],
                 "pct_contribution": query_attn[obs_idx] / query_attn.sum() * 100,
             }
