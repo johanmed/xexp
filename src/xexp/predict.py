@@ -65,6 +65,7 @@ def predict_expression(
     tissue_mean = expression_scaler.mean_[tissue_mask]
     tissue_scale = expression_scaler.scale_[tissue_mask]
     pred_expressions = pred_expressions * tissue_scale + tissue_mean
+    pred_expressions = np.maximum(pred_expressions, 0)
 
     pred_uncertainties = outputs["uncertainties"].squeeze(0).cpu().numpy()
     std = np.sqrt(pred_uncertainties)
