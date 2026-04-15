@@ -4,7 +4,14 @@ import numpy as np
 import torch
 from torch.utils.data import DataLoader
 
-from data import RANDOM_SEED, collate_fn, gene_labels, test_dataset, tissue_labels
+from data import (
+    BATCH_SIZE,
+    RANDOM_SEED,
+    collate_fn,
+    gene_labels,
+    test_dataset,
+    tissue_labels,
+)
 from nn import SetTransformer
 from train import GELoss
 
@@ -16,6 +23,7 @@ def evaluate(model, dataloader, device="cuda") -> torch.Tensor:
     with torch.no_grad():
         for batch in dataloader:
             batch = {k: v.to(device) for k, v in batch.items()}
+            model.train()  # necessary to bypass materialization of full footprint which happen in forward call (pytorch 2) with eval but not train
             outputs = model(
                 obs_tissues=batch["obs_tissues"],
                 obs_genes=batch["obs_genes"],
@@ -24,6 +32,7 @@ def evaluate(model, dataloader, device="cuda") -> torch.Tensor:
                 query_genes=batch["query_genes"],
                 obs_mask=batch["obs_mask"],
             )
+            model.eval()  # turning back to eval mode
             criterion = GELoss()
             losses = criterion(outputs, batch["targets"])
             metric = losses["total"].item() / len(batch)
@@ -33,10 +42,12 @@ def evaluate(model, dataloader, device="cuda") -> torch.Tensor:
 
 if __name__ == "__main__":
     torch.manual_seed(RANDOM_SEED)
-    np.random.seed(RANDOM_SEED)
 
     test_dataloader = DataLoader(
-        test_dataset, batch_size=BATCH_SIZE, shuffle=True, collate_fn=collate_fn
+        test_dataset,
+        batch_size=BATCH_SIZE,
+        shuffle=False,
+        collate_fn=collate_fn,
     )
 
     model = SetTransformer(
@@ -53,4 +64,4 @@ if __name__ == "__main__":
 
     print("Evaluation...")
     final_metric = evaluate(model, test_dataloader)
-    print(f"Final metric: {final_metric}")
+    print(f"Final loss: {final_metric}")
