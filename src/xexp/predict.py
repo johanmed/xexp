@@ -100,32 +100,22 @@ def explain_prediction(
     obs_genes = data["obs_genes"].unsqueeze(0).to(device)
     obs_expressions = data["obs_expressions"].unsqueeze(0).to(device)
 
-    query_tissues = (
-        torch.LongTensor([target_tissue_idx] * len(gene_labels)).unsqueeze(0).to(device)
-    )
-    query_genes = torch.LongTensor(gene_labels).unsqueeze(0).to(device)
+    query_tissue = torch.LongTensor([target_tissue_idx]).unsqueeze(0).to(device)
+    query_gene = torch.LongTensor([target_gene_idx]).unsqueeze(0).to(device)
 
     with torch.no_grad():
         outputs = model(
             obs_tissues=obs_tissues,
             obs_genes=obs_genes,
             obs_expressions=obs_expressions,
-            query_tissues=query_tissues,
-            query_genes=query_genes,
+            query_tissues=query_tissue,
+            query_genes=query_gene,
             return_attention=True,
         )
 
-    # Get attention from last decoder layer
+    # Get attention weight for specific query
     attn = outputs["attention_weights"][-1].squeeze(0)
-
-    # Find the query index for our target (gene, tissue)
-    query_mask = (query_genes == target_gene_idx) & (query_tissues == target_tissue_idx)
-
-    matches = query_mask.nonzero(as_tuple=True)
-    query_idx = matches[1][0].item()
-
-    # Get attention weights for specific query
-    query_attn = attn[query_idx].cpu().numpy()
+    query_attn = attn[0].cpu().numpy()
 
     results = []
     for obs_idx in range(obs_genes.shape[1]):
@@ -133,7 +123,7 @@ def explain_prediction(
             {
                 "obs_gene": gene_labels[obs_genes[0, obs_idx].item()],
                 "obs_tissue": tissue_labels[obs_tissues[0, obs_idx].item()],
-                "obs_expression": obs_expressions[0, obs_idx].item(),
+                "obs_expression": max(obs_expressions[0, obs_idx].item(), 0),
                 "attention_weight": query_attn[obs_idx],
                 "pct_contribution": query_attn[obs_idx] / query_attn.sum() * 100,
             }
@@ -147,7 +137,8 @@ if __name__ == "__main__":
     torch.manual_seed(RANDOM_SEED)
     np.random.seed(RANDOM_SEED)
 
-    transformed_dataset = [d.to_tensor_dict() for d in test_dataset]
+    # Use first 3 observations of the test set for predictions
+    transformed_dataset = [test_dataset[i].to_tensor_dict() for i in range(3)]
 
     model = SetTransformer(
         n_tissues=len(np.unique(tissue_labels)),
@@ -165,7 +156,11 @@ if __name__ == "__main__":
 
     for data in transformed_dataset:
         predictions = predict_expression(model, data)
-        print(f"Predicted expressions for tissue 1: {predictions['expressions']}")
-        print(f"Predicted uncertainties for tissue 1: {predictions['uncertainties']}")
+        print(
+            f"Predicted expressions for genes in tissue 1: {predictions['expressions']}"
+        )
+        print(
+            f"Predicted uncertainties for genes in tissue 1: {predictions['uncertainties']}"
+        )
         explanations = explain_prediction(model, data, tissue_labels, gene_labels)
         print(f"Explanations for tissue 1 and gene 1\n: {explanations}")
