@@ -7,7 +7,13 @@ import pandas as pd
 import torch
 from torch.utils.data import DataLoader
 
-from data import RANDOM_SEED, gene_labels, test_dataset, tissue_labels
+from data import (
+    RANDOM_SEED,
+    expression_scaler,
+    gene_labels,
+    test_dataset,
+    tissue_labels,
+)
 from nn import SetTransformer
 
 
@@ -54,9 +60,14 @@ def predict_expression(
             query_genes=query_genes,
         )
 
-    pred_expressions = outputs["expressions"].squeeze(0)
-    pred_uncertainties = outputs["uncertainties"].squeeze(0)
-    std = torch.sqrt(pred_uncertainties)
+    pred_expressions = outputs["expressions"].squeeze(0).cpu().numpy()
+    tissue_mask = tissue_labels == target_tissue
+    tissue_mean = expression_scaler.mean_[tissue_mask]
+    tissue_scale = expression_scaler.scale_[tissue_mask]
+    pred_expressions = pred_expressions * tissue_scale + tissue_mean
+
+    pred_uncertainties = outputs["uncertainties"].squeeze(0).cpu().numpy()
+    std = np.sqrt(pred_uncertainties)
 
     return {
         "expressions": pred_expressions,

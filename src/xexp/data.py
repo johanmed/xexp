@@ -1,13 +1,14 @@
 """Module with constructs for representing, processing and modeling gene expression data"""
 
 from dataclasses import dataclass
+from pathlib import Path
 
 import joblib
 import numpy as np
 import pandas as pd
 import torch
 from sklearn.model_selection import train_test_split
-from sklearn.preprocessing import LabelEncoder
+from sklearn.preprocessing import LabelEncoder, StandardScaler
 
 
 @dataclass
@@ -171,9 +172,8 @@ pivot = df.pivot_table(
 tissue_labels = pivot.columns.get_level_values(0).values.to_numpy().reshape(-1, 1)
 gene_labels = pivot.columns.get_level_values(1).values.to_numpy().reshape(-1, 1)
 expression_matrix = pivot.values
-expression_mean = expression_matrix.mean(axis=0, keepdims=True)
-expression_std = expression_matrix.std(axis=0, keepdims=True) + 1e-8
-expression_matrix = (expression_matrix - expression_mean) / expression_std
+expression_scaler = StandardScaler()
+expression_matrix = expression_scaler.fit_transform(expression_matrix)
 
 tv_expression_matrix, test_expression_matrix = train_test_split(
     expression_matrix, test_size=0.2, random_state=RANDOM_SEED
@@ -183,12 +183,17 @@ train_expression_matrix, valid_expression_matrix = train_test_split(
 )
 
 tissue_encoder, gene_encoder = LabelEncoder(), LabelEncoder()
-
 tissue_labels = tissue_encoder.fit_transform(tissue_labels)
-joblib.dump(tissue_encoder, "../../results/tissue_encoder.pkl")
-
 gene_labels = gene_encoder.fit_transform(gene_labels)
-joblib.dump(gene_encoder, "../../results/gene_encoder.pkl")
+
+if (
+    not Path("../../results/expression_scaler.pkl").exists()
+    or not Path("../../results/tissue_encoder.pkl").exists()
+    or not Path("../../results/gene_encoder.pkl").exists()
+):
+    joblib.dump(expression_scaler, "../../results/expression_scaler.pkl")
+    joblib.dump(tissue_encoder, "../../results/tissue_encoder.pkl")
+    joblib.dump(gene_encoder, "../../results/gene_encoder.pkl")
 
 train_dataset = MicroarrayDataset(
     expression_matrix=train_expression_matrix,
